@@ -4,29 +4,33 @@ with a random policy.
 '''
 import time
 import argparse
+import os
 from typing import Any, Optional
 
 import jax
 import jax.numpy as jnp
 import jax.random as jrng
 
-from mechagogue.pop.natural_selection import (
+from mechagogue.ecology.natural_selection import (
     natural_selection, NaturalSelectionParams)
 from mechagogue.breed.normal import normal_mutate
-from mechagogue.static_dataclass import static_dataclass
+from mechagogue.static import static_data as static_dataclass
+from mechagogue.commandline import commandline_interface
 from mechagogue.serial import save_leaf_data, load_example_data
 
 #from dirt.examples.nomnom.nomnom_env import nomnom, NomNomParams, NomNomAction
 from dirt.envs.nomnom import nomnom, NomNomParams, NomNomAction
 from dirt.examples.nomnom.nomnom_model import (
     NomNomModelParams, nomnom_model, nomnom_linear_model)
-
-import wandb
 import matplotlib.pyplot as plt
 
 @static_dataclass
+@commandline_interface()
 class NomNomTrainParams:
     max_players : int = 256
+    use_linear_model : bool = True
+    log_level : str = "INFO"
+    exp_id : Optional[str] = None
     env_params : Any = NomNomParams(
         mean_initial_food=8**2,
         max_initial_food=32**2,
@@ -37,11 +41,11 @@ class NomNomTrainParams:
         world_size=(32,32)
     )
     train_params : Any = NaturalSelectionParams(
-        max_population=max_players,
+        max_players=max_players,
     )
     epochs : int = 100
     steps_per_epoch : int = 1000
-    output_directory : str = '/n/holylfs06/LABS/kempner_fellow_awalsman/Lab/chloe00/linear_model'
+    output_directory : str = '/n/netscratch/kdbrantley_lab/Lab/erassou/dirt'
     load_from_file : Optional[str] = None
 
 @static_dataclass
@@ -52,6 +56,7 @@ class NomNomReport:
     player_r : jnp.array = False
     player_energy : jnp.array = False
     food_grid : jnp.array = False
+    family_tree_parents : jnp.array = False
 
 def make_report(
     state, actions, next_state, players, parent_locations, child_locations
@@ -66,27 +71,51 @@ def make_report(
         next_state.env_state.player_r,
         next_state.env_state.player_energy,
         next_state.env_state.food_grid,
+        next_state.env_state.family_tree.parents,
     )
 
 def train(key, params):
-    #wandb.init(project="nomnom",
-    #           entity="harvardml"
-    #           )
+    if params.log_level == "INFO":
+        import wandb
+        wandb.init(project="dirt",
+                entity="lunameme"
+                )
     
     # build the necessary functions
     # - build the environment functions
-    reset_env, step_env = nomnom(params.env_params)
+    poeg = nomnom(params.env_params)
+    # Pass the POEG object directly - natural_selection will extract methods
+    reset_env = poeg.init
+    step_env = poeg.step
     
     # - build mutate function
-    mutate = normal_mutate(learning_rate=3e-4)
+    # Wrap to match expected signature: breed(key, parent_state)
+    _mutate = normal_mutate(learning_rate=3e-4)
+    def mutate(key, parent_state):
+        # normal_mutate expects (key, state), so we pass parent_state as state
+        return _mutate(key, parent_state)
     
     # - build the model functions
     model_params = NomNomModelParams(
         view_width=params.env_params.view_width,
         view_distance=params.env_params.view_distance,
     )
-    #init_model, model = nomnom_model(model_params)
-    init_model, model = nomnom_linear_model(model_params)
+    # NOTE: NomNomTrainParams is a frozen static dataclass, so we avoid
+    # mutating it in-place (which would raise FrozenInstanceError) and
+    # instead derive a local output_directory used for saving.
+    if params.use_linear_model:
+        init_model, model = nomnom_linear_model(model_params)
+        output_directory = params.output_directory + '/linear_model'
+    else:
+        init_model, model = nomnom_model(model_params)
+        output_directory = params.output_directory + '/nomnom_model'
+    
+    # Append exp_id to output_directory if provided
+    if params.exp_id is not None:
+        output_directory = output_directory + '/' + params.exp_id
+    
+    # Create output directory if it doesn't exist
+    os.makedirs(output_directory, exist_ok=True)
     
     # - build the training functions
     reset_train, step_train = natural_selection(
@@ -124,7 +153,7 @@ def train(key, params):
     
     save_leaf_data(
         params,
-        f'{params.output_directory}/train_params.state',
+        f'{output_directory}/train_params.state',
     )
     
     # the outer loop is not scanned because it will have side effects
@@ -136,11 +165,11 @@ def train(key, params):
         
         save_leaf_data(
             (key, epoch, train_state),
-            f'{params.output_directory}/train_state_{epoch:08}.state',
+            f'{output_directory}/train_state_{epoch:08}.state',
         )
         save_leaf_data(
             reports,
-            f'{params.output_directory}/report_{epoch:08}.state',
+            f'{output_directory}/report_{epoch:08}.state',
         )
         epoch += 1
         
@@ -160,9 +189,39 @@ def train(key, params):
         axes[2].set_title("Action distribution 3: reproduce")
 
         fig.tight_layout()
-        #wandb.log({"plot/actions": wandb.Image(fig)})
-        #wandb.log({"active players": players.sum()})
+        if params.log_level == "INFO":
+            wandb.log({"plot/actions": wandb.Image(fig)})
+            wandb.log({"active players": players.sum()})
         
+        # Check if there are 0 agents at any point in this epoch
+        # players shape is (steps_per_epoch, max_players)
+        active_players_per_step = jnp.sum(players, axis=-1)  # Sum over player dimension
+        
+        # Check if any step had 0 agents
+        min_active_players = jnp.min(active_players_per_step)
+        
+        if min_active_players == 0:
+            # Find the first timestep with 0 agents
+            zero_agent_steps = jnp.where(active_players_per_step == 0)[0]
+            first_zero_step = int(zero_agent_steps[0])
+            total_timestep = (epoch - 1) * params.steps_per_epoch + first_zero_step
+            
+            print(f"\n{'='*60}")
+            print(f"Training ended: 0 agents detected")
+            print(f"Epoch: {epoch - 1}")
+            print(f"Timestep within epoch: {first_zero_step}")
+            print(f"Total timestep: {total_timestep}")
+            print(f"{'='*60}\n")
+            
+            if params.log_level == "INFO":
+                wandb.log({
+                    "training_ended": True,
+                    "ending_epoch": epoch - 1,
+                    "ending_timestep": total_timestep,
+                    "ending_timestep_in_epoch": first_zero_step
+                })
+            
+            break
     
     return train_state
 
@@ -171,26 +230,28 @@ if __name__ == '__main__':
     #key = jrng.key(5432)
     key = jrng.key(1234)
     
-    max_players = 512#*16
+    max_players = 128 #*16
     env_params = NomNomParams(
-        max_energy=4.,
+        max_energy=16,
         mean_initial_food=100000, #8**2,
-        max_initial_food=100000, #32**2,
-        mean_food_growth=16, #16*16, #2**2,
-        max_food_growth=1000, #16**2,
-        initial_players=8,
+        max_initial_food= 100000, #100000, #32**2,
+        mean_food_growth=16, #16, #16*16, #2**2,
+        max_food_growth=512, #1000, #16**2,
+        initial_players=32,
         max_players=max_players,
-        world_size=(64,64),#(512,512),
+        world_size=(512,512), #(64,64),
         senescence=0.01,
+        food_metabolism=8,
     )
     train_params = NaturalSelectionParams(
-        max_population=max_players,
+        max_players=max_players,
     )
     params = NomNomTrainParams(
         env_params=env_params,
         train_params=train_params,
-        epochs=830,
-        steps_per_epoch=2048,
+        epochs=10,
+        steps_per_epoch=4096,
+        use_linear_model=True,
     )
     
     # update these defaults with commandline arguments

@@ -1,0 +1,43 @@
+Current conda environment: dirt
+Python path: /n/home11/erassou/.conda/envs/dirt/bin/python
+Mamba version: mamba 1.5.5
+conda 23.11.0
+⚠ WARNING: Found conda-installed cuFFT in nvidia/cufft
+  Conda cuFFT (version 11) conflicts with system CUDA 12.4.1 cuFFT (version 11.201)
+  Attempting to exclude conda cuFFT from library search...
+Verifying jax installation...
+✓ JAX successfully imported: version 0.8.0
+Checking JAX devices...
+✓ JAX devices: [CpuDevice(id=0)]
+✓ Number of devices: 1
+✗ WARNING: No GPU devices found! JAX will use CPU (much slower).
+  This is usually due to:
+    1. Missing cuDNN library
+    2. CUDA/cuDNN version mismatch
+    3. Library path issues
+Verifying mechagogue installation...
+✓ mechagogue modules successfully imported
+
+=== Current Status ===
+✓ JAX 0.8.0 is installed
+✓ CUDA 12 plugins are installed
+✓ cuFFT library found
+✓ cuSPARSE library found
+✓ cuBLAS library found
+✓ cuDNN library found
+
+✓✓✓ All required CUDA libraries are available!
+   JAX should be able to use GPU devices.
+wandb: Currently logged in as: lunameme to https://api.wandb.ai. Use `wandb login --relogin` to force relogin
+wandb: setting up run c888cvbr
+wandb: Tracking run with wandb version 0.23.0
+wandb: Run data is saved locally in /n/netscratch/kdbrantley_lab/Lab/erassou/dirt/dirt/examples/nomnom/wandb/run-20251129_024007-c888cvbr
+wandb: Run `wandb offline` to turn off syncing.
+wandb: Syncing run noble-wildflower-7
+wandb: ⭐️ View project at https://wandb.ai/lunameme/dirt
+wandb: 🚀 View run at https://wandb.ai/lunameme/dirt/runs/c888cvbr
+Epoch: 0
+28.80970287322998
+[1;34mwandb[0m: 
+[1;34mwandb[0m: 🚀 View run [33mnoble-wildflower-7[0m at: [34mhttps://wandb.ai/lunameme/dirt/runs/c888cvbr[0m
+[1;34mwandb[0m: Find logs at: [1;35mwandb/run-20251129_024007-c888cvbr/logs[0m

@@ -6,8 +6,8 @@ import jax.random as jrng
 
 import chex
 
-from mechagogue.static_dataclass import static_dataclass
-from mechagogue.dp.population_game import population_game
+from mechagogue.static import static_data as static_dataclass
+from mechagogue.dp.poeg import make_poeg
 from mechagogue.player_list import birthday_player_list, player_family_tree
 
 from dirt.gridworld2d import dynamics, observations, spawn
@@ -203,12 +203,23 @@ def nomnom(
         # get the active players
         active_players = active_family_tree(state.family_tree)
         
+        # Ensure action components are 1D: (batch,) not (batch, classes)
+        # If they're 2D, take argmax to get the sampled index
+        def ensure_1d(x):
+            if len(x.shape) > 1:
+                return jnp.argmax(x, axis=-1)
+            return x
+        
+        forward = ensure_1d(action.forward)
+        rotate = ensure_1d(action.rotate)
+        reproduce = ensure_1d(action.reproduce)
+        
         # move
         player_x, player_r, _, object_grid = dynamics.forward_rotate_step(
             state.player_x,
             state.player_r,
-            action.forward,
-            action.rotate,
+            forward,
+            rotate,
             active=active_players,
             check_collisions=True,
             object_grid=state.object_grid,
@@ -232,7 +243,7 @@ def nomnom(
             food_at_player & jnp.logical_not(eaten_food.astype(jnp.int32)))
     
         # metabolism
-        moved = action.forward | (action.rotate != 0)
+        moved = forward | (rotate != 0)
         energy_consumption = (
             moved * params.move_metabolism +
             (1. - moved) * params.wait_metabolism
@@ -245,7 +256,7 @@ def nomnom(
         # - filter the reproduce vector to remove dead players and those without
         #   enough energy to create offspring
         reproduce = (
-            action.reproduce &
+            reproduce &
             (player_energy > params.initial_energy) &
             active_players
         )
@@ -265,7 +276,7 @@ def nomnom(
         n = reproduce.shape[0]
         parent_locations, = jnp.nonzero(reproduce, size=n, fill_value=n)
         parent_locations = parent_locations[...,None]
-        family_tree, child_locations = step_family_tree(
+        family_tree, child_locations, _ = step_family_tree(
             state.family_tree, deaths, parent_locations)
         
         # set the children's age to be zero
@@ -327,18 +338,22 @@ def nomnom(
     def active_players(state):
         return active_family_tree(state.family_tree)
     
-    def family_info(next_state):
-        birthdays = next_state.family_tree.player_list.players[...,0]
-        current_time = next_state.family_tree.player_list.current_time 
+    def family_info(state, action, next_state):
+        birthdays = next_state.family_tree.player_state.players[...,0]
+        current_time = next_state.family_tree.player_state.current_time 
         child_locations, = jnp.nonzero(
             birthdays == current_time,
             size=params.max_players,
             fill_value=params.max_players,
         )
         parent_info = next_state.family_tree.parents[child_locations]
-        parent_locations = parent_info[...,1]
+        # Extract parent locations and flatten to remove extra dimension
+        # parent_info has shape (num_children, parents_per_child) where parents_per_child=1
+        parent_locations = parent_info[...,0]
+        # Ensure parent_locations is 1D (flatten in case there are any extra dimensions)
+        parent_locations = parent_locations.flatten()
         
         return parent_locations, child_locations
 
-    return population_game(
+    return make_poeg(
         init_state, transition, observe, active_players, family_info)

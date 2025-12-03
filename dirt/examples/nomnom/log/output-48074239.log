@@ -1,0 +1,31 @@
+Current conda environment: dirt
+Python path: /n/home11/erassou/.conda/envs/dirt/bin/python
+Mamba version: mamba 1.5.5
+conda 23.11.0
+⚠ WARNING: Found conda-installed cuFFT in nvidia/cufft
+  Conda cuFFT (version 11) conflicts with system CUDA 12.4.1 cuFFT (version 11.201)
+  Attempting to exclude conda cuFFT from library search...
+Verifying jax installation...
+✓ JAX successfully imported: version 0.8.0
+Checking JAX devices...
+✓ JAX devices: [CudaDevice(id=0), CudaDevice(id=1), CudaDevice(id=2), CudaDevice(id=3)]
+✓ Number of devices: 4
+✗ WARNING: No GPU devices found! JAX will use CPU (much slower).
+  This is usually due to:
+    1. Missing cuDNN library
+    2. CUDA/cuDNN version mismatch
+    3. Library path issues
+Verifying mechagogue installation...
+✓ mechagogue modules successfully imported
+
+=== Current Status ===
+✓ JAX 0.8.0 is installed
+✓ CUDA 12 plugins are installed
+✓ cuFFT library found
+✓ cuSPARSE library found
+✓ cuBLAS library found
+✓ cuDNN library found
+
+✓✓✓ All required CUDA libraries are available!
+   JAX should be able to use GPU devices.
+/var/slurmd/spool/slurmd/job48074239/slurm_script: line 297: 2253893 Segmentation fault      (core dumped) python train_nomnom.py

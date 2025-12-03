@@ -244,7 +244,16 @@ def step(
         world_size = object_grid.shape
     
     if active is not None:
-        dx = dx * active[:, None]
+        # Ensure dr is 1D: (batch,) not (batch, classes)
+        # If it's 2D, take argmax to get the sampled index
+        if len(dr.shape) > 1:
+            dr = jnp.argmax(dr, axis=-1)
+        # Ensure active broadcasts correctly with dx
+        # dx should be (batch, 2) or (batch, 2, 2), active is (batch,)
+        # Add dimensions to active to match dx's trailing dimensions
+        active_shape = active.shape + (1,) * (len(dx.shape) - len(active.shape))
+        active_broadcast = active.reshape(active_shape)
+        dx = dx * active_broadcast
         dr = dr * active
     
     if space == 'global':
@@ -272,7 +281,7 @@ def step(
             return x1, r1, collided, object_grid
         
         else:
-            object_grid = update_occupancy(x0, x1, object_grid)
+            object_grid = move_objects(x0, x1, object_grid)
             return x1, r1, object_grid
     
     return x1, r1
@@ -284,6 +293,14 @@ def forward_rotate_step(
     rotate : jnp.ndarray,
     **kwargs
 ) -> Tuple[jnp.ndarray, jnp.ndarray] :
+    # Ensure forward is 1D: (batch,) not (batch, classes)
+    # If it's 2D, take argmax to get the sampled index
+    if len(forward.shape) > 1:
+        forward = jnp.argmax(forward, axis=-1)
+    # Ensure rotate is 1D: (batch,) not (batch, classes)
+    # If it's 2D, take argmax to get the sampled index
+    if len(rotate.shape) > 1:
+        rotate = jnp.argmax(rotate, axis=-1)
     dx = jnp.stack((forward, jnp.zeros_like(forward)), axis=-1)
     return step(x0, r0, dx, rotate, space='local', **kwargs)
 

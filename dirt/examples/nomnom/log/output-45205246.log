@@ -1,0 +1,30 @@
+/n/home11/erassou/.bashrc: line 8: /n/netscratch/kdbrantley_lab/Lab/erassou/spack/share/spack/setup-env.sh: No such file or directory
+no change     /n/sw/Mambaforge-23.11.0-0/condabin/conda
+no change     /n/sw/Mambaforge-23.11.0-0/bin/conda
+no change     /n/sw/Mambaforge-23.11.0-0/bin/conda-env
+no change     /n/sw/Mambaforge-23.11.0-0/bin/activate
+no change     /n/sw/Mambaforge-23.11.0-0/bin/deactivate
+no change     /n/sw/Mambaforge-23.11.0-0/etc/profile.d/conda.sh
+no change     /n/sw/Mambaforge-23.11.0-0/etc/fish/conf.d/conda.fish
+no change     /n/sw/Mambaforge-23.11.0-0/shell/condabin/Conda.psm1
+no change     /n/sw/Mambaforge-23.11.0-0/shell/condabin/conda-hook.ps1
+no change     /n/sw/Mambaforge-23.11.0-0/lib/python3.10/site-packages/xontrib/conda.xsh
+no change     /n/sw/Mambaforge-23.11.0-0/etc/profile.d/conda.csh
+modified      /n/home11/erassou/.bashrc
+
+==> For changes to take effect, close and re-open your current shell. <==
+
+Added mamba to /n/home11/erassou/.bashrc
+
+==> For changes to take effect, close and re-open your current shell. <==
+
+Run 'mamba init' to be able to run mamba activate/deactivate
+and start a new shell session. Or use conda to activate/deactivate.
+
+Run 'mamba init' to be able to run mamba activate/deactivate
+and start a new shell session. Or use conda to activate/deactivate.
+
+Traceback (most recent call last):
+  File "/n/netscratch/kdbrantley_lab/Lab/erassou/dirt/dirt/examples/nomnom/train_nomnom.py", line 13, in <module>
+    from mechagogue.pop.natural_selection import (
+ModuleNotFoundError: No module named 'mechagogue.pop'

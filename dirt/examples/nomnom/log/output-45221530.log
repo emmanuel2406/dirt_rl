@@ -1,0 +1,9 @@
+Run 'mamba init' to be able to run mamba activate/deactivate
+and start a new shell session. Or use conda to activate/deactivate.
+
+Current conda environment: base
+Python path: /n/sw/Mambaforge-23.11.0-0/bin/python
+Traceback (most recent call last):
+  File "/n/netscratch/kdbrantley_lab/Lab/erassou/dirt/dirt/examples/nomnom/train_nomnom.py", line 9, in <module>
+    import jax
+ModuleNotFoundError: No module named 'jax'

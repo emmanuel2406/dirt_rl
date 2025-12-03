@@ -8,20 +8,20 @@ import re
 
 import argparse
 
-from mechagogue.pop.natural_selection import (
+from mechagogue.ecology.natural_selection import (
     natural_selection, NaturalSelectionParams)
 from mechagogue.breed.normal import normal_mutate
-from mechagogue.static_dataclass import static_dataclass
+from mechagogue.static import static_data as static_dataclass
 from mechagogue.player_list import birthday_player_list, player_family_tree
 
 from mechagogue.tree import tree_getitem
 from mechagogue.serial import load_example_data
 
-from dirt.examples.nomnom.nomnom_model import nomnom_model
+from dirt.examples.nomnom.nomnom_model import nomnom_model, nomnom_linear_model
 from dirt.examples.nomnom.train_nomnom import NomNomTrainParams, NomNomModelParams, NomNomParams, make_report
 from dirt.examples.nomnom.nomnom_env_evaluate import nomnom_no_reproduce, place_food_in_middle
 
-def simulate_player_single_agent(n_steps, single_player_params, key):
+def simulate_player_single_agent(n_steps, single_player_params, key, use_linear_model=True):
     """
     Runs a single-agent simulation in a 5*5 no-reproduce environment using
     one player's parameters.
@@ -32,12 +32,15 @@ def simulate_player_single_agent(n_steps, single_player_params, key):
     state, obs, _ = reset_env(rng_key)
     state = place_food_in_middle(state)
     model_params = NomNomModelParams()
-    init, model = nomnom_model(model_params)
+    if use_linear_model:
+        init, model = nomnom_linear_model(model_params)
+    else:
+        init, model = nomnom_model(model_params)
     initial_food = jnp.sum(state.food_grid)
 
     for t in range(n_steps):
         action = model(step_key, obs, single_player_params)
-        next_state, next_obs, _, _, _ = step_env(step_key, state, action)
+        next_state, next_obs, _, _, _ = step_env(step_key, state, action, None)
         
         print(f"  Step {t}, action={action}, energy={next_obs.energy}")
         
@@ -59,15 +62,20 @@ def evaluate_state_file(
     epoch = 0
     reset_env, step_env = nomnom_no_reproduce(params.env_params)
 
-    # - build mutate function
-    mutate = normal_mutate(learning_rate=3e-4)
+    # - build mutate function (wrap to match expected signature)
+    _mutate = normal_mutate(learning_rate=3e-4)
+    def mutate(key, parent_state):
+        return _mutate(key, parent_state)
     
     # - build the model functions
     model_params = NomNomModelParams(
         view_width=params.env_params.view_width,
         view_distance=params.env_params.view_distance,
     )
-    init_model, model = nomnom_model(model_params)
+    if params.use_linear_model:
+        init_model, model = nomnom_linear_model(model_params)
+    else:
+        init_model, model = nomnom_model(model_params)
     
     # - build the training functions
     reset_train, step_train = natural_selection(
@@ -85,19 +93,23 @@ def evaluate_state_file(
     train_state, _ = jax.jit(reset_train)(reset_key)
 
     print(f"Loading checkpoint from {state_path}...")
-    key, epoch, train_state = load_example_data(
-        (key, epoch, train_state),
-        state_path
-    )
-    print(f"Loaded train_state from epoch {epoch}.")
+    try:
+        key, epoch, train_state = load_example_data(
+            (key, epoch, train_state),
+            state_path
+        )
+        print(f"Loaded train_state from epoch {epoch}.")
+    except ValueError as err:
+        print(f"WARNING: Failed to load {state_path}: {err}")
+        return (epoch, float('nan'), float('nan'))
 
     env_state = train_state.env_state
-    model_state = train_state.model_state
+    model_state = train_state.population_state
     obs = train_state.obs
 
     # Use the same approach that the environment uses for active players
     _, _, active_players = birthday_player_list(max_population)
-    active_mask = active_players(env_state.family_tree.player_list)
+    active_mask = active_players(env_state.family_tree.player_state)
     active_indices = jnp.where(active_mask)[0]
     
     print(f"Active players: {active_indices}")
@@ -112,7 +124,7 @@ def evaluate_state_file(
         for _ in range(trials_per_agent):
             key, sim_key = jrng.split(key)
             food_eaten = simulate_player_single_agent(
-                steps_per_trial, single_player_params, sim_key
+                steps_per_trial, single_player_params, sim_key, params.use_linear_model
             )
             all_food_eaten.append(food_eaten)
     if len(all_food_eaten) == 0:
@@ -200,7 +212,7 @@ if __name__ == "__main__":
     )
 
     train_params = NaturalSelectionParams(
-        max_population=max_players,
+        max_players=max_players,
     )
 
     params = NomNomTrainParams(
@@ -208,6 +220,7 @@ if __name__ == "__main__":
         train_params=train_params,
         epochs=4,
         steps_per_epoch=256,
+        use_linear_model=True,
     )
 
     main(params)

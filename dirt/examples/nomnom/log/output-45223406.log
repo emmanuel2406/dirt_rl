@@ -1,0 +1,10 @@
+Current conda environment: dirt
+Python path: /n/home11/erassou/.conda/envs/dirt/bin/python
+Mamba version: mamba 1.5.5
+conda 23.11.0
+Verifying jax installation...
+✓ JAX successfully imported: version 0.8.0
+Traceback (most recent call last):
+  File "/n/netscratch/kdbrantley_lab/Lab/erassou/dirt/dirt/examples/nomnom/train_nomnom.py", line 13, in <module>
+    from mechagogue.pop.natural_selection import (
+ModuleNotFoundError: No module named 'mechagogue.pop'

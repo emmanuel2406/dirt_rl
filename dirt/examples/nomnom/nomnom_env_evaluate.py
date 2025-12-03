@@ -5,10 +5,16 @@ import chex
 
 from mechagogue.dp.population_game import population_game
 from mechagogue.player_list import birthday_player_list, player_family_tree
-from mechagogue.pop.natural_selection import NaturalSelectionState
+from mechagogue.ecology.natural_selection import NaturalSelectionState
 
 from dirt.gridworld2d import dynamics, observations, spawn
-from dirt.examples.nomnom.nomnom_env import nomnom, NomNomParams, NomNomState, NomNomAction, NomNomObservation
+from dirt.envs.nomnom import (
+    nomnom,
+    NomNomParams,
+    NomNomState,
+    NomNomAction,
+    NomNomObservation,
+)
 from dirt.examples.nomnom.nomnom_model import nomnom_model, NomNomModelParams
 
 # Reuse the existing NomNomParams but create a new instance with customized values.
@@ -163,7 +169,7 @@ def nomnom_no_reproduce(params: NomNomParams = custom_5x5_params_fixed_food):
         n = reproduce.shape[0]
         parent_locations, = jnp.nonzero(reproduce, size=n, fill_value=n)
         parent_locations = parent_locations[...,None]
-        family_tree, child_locations = step_family_tree(
+        family_tree, child_locations, _ = step_family_tree(
             state.family_tree, deaths, parent_locations)
         
         # object_grid updates for dead players
@@ -229,8 +235,8 @@ def nomnom_no_reproduce(params: NomNomParams = custom_5x5_params_fixed_food):
         return active_family_tree(state.family_tree)
     
     def family_info_no_reproduce(next_state):
-        birthdays = next_state.family_tree.player_list.players[...,0]
-        current_time = next_state.family_tree.player_list.current_time 
+        birthdays = next_state.family_tree.player_state.players[...,0]
+        current_time = next_state.family_tree.player_state.current_time 
         child_locations, = jnp.nonzero(
             birthdays == current_time,
             size=params.max_players,

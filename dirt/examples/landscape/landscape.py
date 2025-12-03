@@ -63,7 +63,7 @@ if __name__ == '__main__':
     key = jrng.key(params.seed)
     
     # make the landscape
-    landscape = make_landscape(landscape_params, float_dtype=float_dtype)
+    landscape = make_landscape(params.landscape_params, float_dtype=float_dtype)
     
     params_path = f'{params.output_directory}/params.state'
     reports_path = f'{params.output_directory}/report.state'

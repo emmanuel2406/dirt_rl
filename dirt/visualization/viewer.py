@@ -794,15 +794,38 @@ class Viewer:
         
         return self.upright @ transforms
     
-    def start(self):
+    def start(self, max_frames=None, auto_step=False):
+        """Start the main render loop.
+
+        Args:
+            max_frames: Optional[int]. If provided, the viewer will render
+                at most this many frames and then exit, which is useful for
+                non-interactive/headless environments (e.g., Slurm jobs).
+            auto_step: bool. If True, automatically advance the simulation
+                step each frame instead of waiting for keyboard input. This
+                is useful when running headless without interactive control.
+        """
         self.window.show_window()
         self.window.enable_window()
-        
+
+        frame = 0
         while not self.window.should_close():
             self.window.poll_events()
+
+            # In headless/batch mode, advance the current step automatically.
+            if auto_step:
+                next_step = min(self.current_step + self.step_size, self.step_N - 1)
+                # Only call change_step if we're not already at the last step.
+                if next_step != self.current_step:
+                    self.change_step(next_step)
+
             self.render()
             self.window.swap_buffers()
-        
+
+            frame += 1
+            if max_frames is not None and frame >= max_frames:
+                break
+
         glfw_context.terminate()
     
     def render(self):

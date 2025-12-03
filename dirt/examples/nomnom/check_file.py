@@ -6,7 +6,7 @@ import glob
 
 from mechagogue.serial import load_example_data
 from mechagogue.breed.normal import normal_mutate
-from mechagogue.pop.natural_selection import (
+from mechagogue.ecology.natural_selection import (
     natural_selection, NaturalSelectionParams)
 
 from dirt.examples.nomnom.nomnom_model import nomnom_model
@@ -35,7 +35,7 @@ custom_5x5_params_fixed_food = NomNomParams(
 )
 
 train_params = NaturalSelectionParams(
-    max_population=max_players,
+    max_players=max_players,
 )
 
 params = NomNomTrainParams(

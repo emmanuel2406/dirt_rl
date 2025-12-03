@@ -1,0 +1,11 @@
+/n/home11/erassou/.bashrc: line 8: /n/netscratch/kdbrantley_lab/Lab/erassou/spack/share/spack/setup-env.sh: No such file or directory
+Run 'mamba init' to be able to run mamba activate/deactivate
+and start a new shell session. Or use conda to activate/deactivate.
+
+Run 'mamba init' to be able to run mamba activate/deactivate
+and start a new shell session. Or use conda to activate/deactivate.
+
+Traceback (most recent call last):
+  File "/n/netscratch/kdbrantley_lab/Lab/erassou/dirt/dirt/examples/nomnom/train_nomnom.py", line 13, in <module>
+    from mechagogue.pop.natural_selection import (
+ModuleNotFoundError: No module named 'mechagogue.pop'

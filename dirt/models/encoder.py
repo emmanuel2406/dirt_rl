@@ -103,7 +103,7 @@ def make_nonvisual_encoder(
         dtype=dtype,
     )
     
-    def forward(x, state):
+    def forward(key, x, state):
         features = [
             x.age.flatten().astype(dtype),
             x.newborn.flatten().astype(dtype),
@@ -128,7 +128,7 @@ def make_nonvisual_encoder(
         features.append(x.health.flatten().astype(dtype))
         x = jnp.concatenate(features)
         
-        x = linear1.forward(x, state)
+        x = linear1.forward(key, x, state)
         
         return x
 
@@ -257,15 +257,15 @@ def make_conv_attention_vision_encoder(
             )
         
         def forward(key, x, state):
-            x = conv1.forward(x, state.conv1)
+            x = conv1.forward(key, x, state.conv1)
             x = x.reshape(-1, hidden_channels) + state.position_embedding
-            kv = kv_linear.forward(x, state.kv_linear)
+            kv = kv_linear.forward(key, x, state.kv_linear)
             k = kv[...,:hidden_channels].reshape(-1, hidden_channels)
             v = kv[...,hidden_channels:].reshape(-1, hidden_channels)
             
             x = attention1.forward(key, (state.q, k, v))[0]
             x = relu1.forward(x)
-            x = linear1.forward(x, state.linear1)
+            x = linear1.forward(key, x, state.linear1)
             return x
     
     return ConvAttentionEncoder

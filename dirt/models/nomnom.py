@@ -8,7 +8,7 @@ from mechagogue.nn.linear import (
     embedding_layer, linear_layer, conv_layer)
 from mechagogue.nn.sequence import layer_sequence
 from mechagogue.nn.mlp import mlp
-from mechagogue.nn.structured import parallel_dict_layer
+from mechagogue.nn.structure import dict_layer as parallel_dict_layer
 from mechagogue.nn.distributions import categorical_sampler_layer
 from mechagogue.nn.debug import print_activations_layer
 from mechagogue.breed.normal import normal_mutate
