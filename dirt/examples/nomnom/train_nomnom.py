@@ -5,6 +5,8 @@ with a random policy.
 import time
 import argparse
 import os
+import json
+import numpy as np
 from typing import Any, Optional
 
 import jax
@@ -156,6 +158,9 @@ def train(key, params):
         f'{output_directory}/train_params.state',
     )
     
+    # Initialize time-series tracking for active players
+    players_time_series = []
+    
     # the outer loop is not scanned because it will have side effects
     while epoch < params.epochs:
         print(f'Epoch: {epoch}')
@@ -197,6 +202,10 @@ def train(key, params):
         # players shape is (steps_per_epoch, max_players)
         active_players_per_step = jnp.sum(players, axis=-1)  # Sum over player dimension
         
+        # Accumulate time-series data (convert to numpy for JSON serialization)
+        active_players_array = np.array(active_players_per_step)
+        players_time_series.extend(active_players_array.tolist())
+        
         # Check if any step had 0 agents
         min_active_players = jnp.min(active_players_per_step)
         
@@ -223,6 +232,19 @@ def train(key, params):
             
             break
     
+    # Save time-series data to JSON file
+    time_series_file = f'{output_directory}/players_time_series.json'
+    time_series_data = {
+        'active_players_per_step': players_time_series,
+        'total_steps': len(players_time_series),
+        'steps_per_epoch': params.steps_per_epoch,
+        'epochs_completed': epoch,
+        'exp_id': params.exp_id,
+    }
+    with open(time_series_file, 'w') as f:
+        json.dump(time_series_data, f, indent=2)
+    print(f"Saved players time-series to: {time_series_file}")
+    
     return train_state
 
 if __name__ == '__main__':
@@ -232,7 +254,7 @@ if __name__ == '__main__':
     
     max_players = 128 #*16
     env_params = NomNomParams(
-        max_energy=16,
+        max_energy=2,
         mean_initial_food=100000, #8**2,
         max_initial_food= 100000, #100000, #32**2,
         mean_food_growth=16, #16, #16*16, #2**2,

@@ -11,6 +11,8 @@ The agents evolve through natural selection while also learning via RL.
 import time
 import argparse
 import os
+import json
+import numpy as np
 from typing import Any, Optional
 
 import jax
@@ -35,7 +37,8 @@ from dirt.envs.nomnom import nomnom, NomNomParams, NomNomAction
 from dirt.examples.nomnom.nomnom_model import (
     NomNomModelParams, nomnom_linear_model)
 from dirt.examples.nomnom.nomnom_model_rl import (
-    create_rl_nomnom_model, NomNomRLModelParams)
+    create_rl_nomnom_model, NomNomRLModelParams,
+    nomnom_linear_model_with_communication)
 
 import matplotlib.pyplot as plt
 
@@ -156,8 +159,31 @@ def train(key, params):
     if params.use_linear_model:
         # RL experiments with the linear model are stored under `linear_model_rl`
         # to match the expectations in `scripts/ablate_nomnom.sh`.
-        init_model, model = nomnom_linear_model(model_params)
-        output_directory = params.output_directory + '/linear_model_rl'
+        if params.enable_communication:
+            # Use linear model with communication support
+            rl_model_params = NomNomRLModelParams(
+                view_width=params.env_params.view_width,
+                view_distance=params.env_params.view_distance,
+                enable_communication=True,
+                use_augmented_obs=True,
+            )
+            init_model, model = nomnom_linear_model_with_communication(rl_model_params)
+            output_directory = params.output_directory + '/linear_model_rl_comm'
+        else:
+            # Use RL-compatible model if RL is enabled, otherwise use vanilla model
+            if params.enable_rl:
+                # RL-compatible linear model without communication
+                rl_model_params = NomNomRLModelParams(
+                    view_width=params.env_params.view_width,
+                    view_distance=params.env_params.view_distance,
+                    enable_communication=False,
+                    use_augmented_obs=False,
+                )
+                init_model, model = nomnom_linear_model_with_communication(rl_model_params)
+            else:
+                # Standard linear model without communication (no RL)
+                init_model, model = nomnom_linear_model(model_params)
+            output_directory = params.output_directory + '/linear_model_rl'
     else:
         # Use RL-compatible model if communication enabled.
         # Directory names are chosen to stay in sync with OUTPUT_DIR_BASE
@@ -259,6 +285,9 @@ def train(key, params):
         f'{output_directory}/train_params.state',
     )
     
+    # Initialize time-series tracking for active players
+    players_time_series = []
+    
     # Training loop
     print(f"Starting training: {params.epochs} epochs, {params.steps_per_epoch} steps per epoch")
     print(f"RL enabled: {params.enable_rl}")
@@ -320,6 +349,11 @@ def train(key, params):
         
         # Check for extinction
         active_players_per_step = jnp.sum(players, axis=-1)
+        
+        # Accumulate time-series data (convert to numpy for JSON serialization)
+        active_players_array = np.array(active_players_per_step)
+        players_time_series.extend(active_players_array.tolist())
+        
         min_active_players = jnp.min(active_players_per_step)
         
         if min_active_players == 0:
@@ -348,6 +382,21 @@ def train(key, params):
         
         epoch += 1
     
+    # Save time-series data to JSON file
+    time_series_file = f'{output_directory}/players_time_series.json'
+    time_series_data = {
+        'active_players_per_step': players_time_series,
+        'total_steps': len(players_time_series),
+        'steps_per_epoch': params.steps_per_epoch,
+        'epochs_completed': epoch,
+        'exp_id': params.exp_id,
+        'enable_rl': params.enable_rl,
+        'enable_communication': params.enable_communication,
+    }
+    with open(time_series_file, 'w') as f:
+        json.dump(time_series_data, f, indent=2)
+    print(f"Saved players time-series to: {time_series_file}")
+    
     print("\nTraining complete!")
     return train_state
 
@@ -358,7 +407,7 @@ if __name__ == '__main__':
     # Default parameters
     max_players = 128
     env_params = NomNomParams(
-        max_energy=16,
+        max_energy=2,
         mean_initial_food=100000,
         max_initial_food=100000,
         mean_food_growth=16,

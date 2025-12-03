@@ -6,3 +6,4 @@ wandb
 *.state
 .DS_Store
 raw/
+visual_output/

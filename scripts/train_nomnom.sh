@@ -307,7 +307,26 @@ RL_ARGS=()
 # Default use_linear_model to 0 (nomnom_model) if not specified
 USE_LINEAR_MODEL=${USE_LINEAR_MODEL:-0}
 
+# Helper function to convert boolean strings to 1/0 (required by argparse bool parser)
+# The mechagogue commandline_interface expects bools as integers: 0 or 1
+convert_bool_to_int() {
+    local value="$1"
+    case "$value" in
+        [Tt][Rr][Uu][Ee]|1|[Yy][Ee][Ss]|[Oo][Nn])
+            echo "1"
+            ;;
+        [Ff][Aa][Ll][Ss][Ee]|0|[Nn][Oo]|[Oo][Ff][Ff])
+            echo "0"
+            ;;
+        *)
+            # If it's already a number, pass it through
+            echo "$value"
+            ;;
+    esac
+}
+
 # Parse all arguments
+ENABLE_COMMUNICATION_SET=false
 while [ $# -gt 0 ]; do
     arg="$1"
     shift
@@ -325,6 +344,14 @@ while [ $# -gt 0 ]; do
             USE_LINEAR_MODEL_ARG=("--use_linear_model" "$1")
             shift
         fi
+    elif [[ "$arg" == "--enable_communication" ]]; then
+        # Next argument is the enable_communication value
+        if [ $# -gt 0 ]; then
+            ENABLE_COMMUNICATION_VALUE=$(convert_bool_to_int "$1")
+            RL_ARGS+=("--enable_communication" "$ENABLE_COMMUNICATION_VALUE")
+            ENABLE_COMMUNICATION_SET=true
+            shift
+        fi
     elif [[ "$arg" =~ ^exp_id=(.+)$ ]]; then
         # exp_id=value format
         EXP_ID_VALUE="${BASH_REMATCH[1]}"
@@ -335,7 +362,10 @@ while [ $# -gt 0 ]; do
         USE_LINEAR_MODEL_ARG=("--use_linear_model" "$USE_LINEAR_MODEL")
     elif [[ "$arg" =~ ^enable_communication=(.+)$ ]]; then
         # enable_communication=value format (RL-specific)
-        RL_ARGS+=("--enable_communication" "${BASH_REMATCH[1]}")
+        # Convert boolean strings to 1/0 format
+        ENABLE_COMMUNICATION_VALUE=$(convert_bool_to_int "${BASH_REMATCH[1]}")
+        RL_ARGS+=("--enable_communication" "$ENABLE_COMMUNICATION_VALUE")
+        ENABLE_COMMUNICATION_SET=true
     elif [[ "$arg" =~ ^rl_learning_rate=(.+)$ ]]; then
         # rl_learning_rate=value format (RL-specific)
         RL_ARGS+=("--rl_learning_rate" "${BASH_REMATCH[1]}")
@@ -373,6 +403,13 @@ done
 # If USE_LINEAR_MODEL was set via environment variable but not via argument, use it
 if [ -z "${USE_LINEAR_MODEL_ARG[*]}" ] && [ -n "${USE_LINEAR_MODEL}" ]; then
     USE_LINEAR_MODEL_ARG=("--use_linear_model" "$USE_LINEAR_MODEL")
+fi
+
+# If ENABLE_COMMUNICATION was set via environment variable but not via argument, use it
+# Similar to how ENABLE_RL works - use environment variable as default
+if [ "$ENABLE_COMMUNICATION_SET" = "false" ] && ([ "${ENABLE_COMMUNICATION}" = "true" ] || [ "${ENABLE_COMMUNICATION}" = "1" ] || [ "${ENABLE_COMMUNICATION}" = "True" ]); then
+    ENABLE_COMMUNICATION_VALUE=$(convert_bool_to_int "${ENABLE_COMMUNICATION}")
+    RL_ARGS+=("--enable_communication" "$ENABLE_COMMUNICATION_VALUE")
 fi
 
 python "${TRAIN_SCRIPT}" "${USE_LINEAR_MODEL_ARG[@]}" --log_level ERROR "${EXP_ID_ARG[@]}" "${PARAM_ARGS[@]}" "${RL_ARGS[@]}"

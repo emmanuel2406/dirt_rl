@@ -10,6 +10,7 @@ Key additions:
 - Compatibility with both evolution and RL training
 '''
 
+import jax
 import jax.random as jrng
 import jax.numpy as jnp
 import jax.nn as jnn
@@ -168,7 +169,7 @@ def nomnom_linear_model_with_communication(params=NomNomRLModelParams()):
     if params.enable_communication:
         action_heads['message'] = layer_sequence((
             linear_layer(in_dim, params.message_dim, use_bias=True),
-            (lambda: None, jnn.tanh),  # Bound messages to [-1, 1]
+            (lambda: None, lambda key, x, state: jnn.tanh(x)),  # Bound messages to [-1, 1]
         ))
     
     decoder_heads = parallel_dict_layer(action_heads)
