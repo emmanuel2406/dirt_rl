@@ -1,4 +1,4 @@
-# DIRT: The Distributed Intelligent Replicator Toolkit
+# DIRT-rl: A DIRT fork for RL ablations
 ![Fig1](https://github.com/aaronwalsman/dirt/blob/main/images/fig1.png?raw=true)
 _Simulator Overview: This map contains 1024 × 1024
 grid cells and 10,000 individual agents, which are too small to see
@@ -6,13 +6,13 @@ when fully zoomed out. The inset areas progressively zoom in on
 one patch of terrain to reveal detail._
 
 ## Overview
-DIRT is a set of simulation tools for building large dynamic gridworlds with artificial agents (referred to as 'bugs' below).
+DIRT-rl is a fork of DIRT: The Distributed Intelligent Replicator Toolkit, focused on running RL-enabled ablations in the NomNom environment. It retains the original simulator while adding scripts to reproduce our RL experiments.
 
 ## Setup
 
-Clone the repo:
+Clone this fork:
 ```
-git clone https://github.com/aaronwalsman/dirt.git
+git clone https://github.com/emmanuel2406/dirt_rl.git
 ```
 
 Create a conda env with Python 3.11:
@@ -59,35 +59,42 @@ cd ../dirt/dirt/examples/landscape
 python landscape.py
 ```
 
-## Viewer Controls
+## Reproducibility (NomNom ablations)
+The RL ablation and visualization pipeline is driven by `scripts/ablate_nomnom.sh`.
 
-### Navigation
-- **`.` (period)** - Move forward one step
-- **`,` (comma)** - Move backward one step  
-- **`+` (plus)** - Increase step size
-- **`-` (minus)** - Decrease step size
-- **Shift + `.`** - Move forward by one full block of reports
-- **Shift + `,`** - Move backward by one full block of reports
+1) Ensure the environment is activated and from the repo root run:
+```
+cd scripts
+```
 
-### Bug Inspection
-- Hold `Ctrl` - Enable bug inspection. Click on a bug to print its traits to stdout.
+2) Launch an ablation sweep over a parameter (example: varying `max_energy`):
+```
+./ablate_nomnom.sh max_energy 4 6 8 10 12
+```
 
-### Display Modes
-- **`0`** - Not implemented
-- **`1`** - RGB with lighting (default); shows terrain, water, energy, biomass with day/night lighting
-- **`2`** - RGB without lighting; same as mode 1 but always bright
-- **`3`** - Temperature map; red (hot), blue (cold), useful for thermal dynamics
-- **`4`** - Weather/moisture map; blue (moisture), purple (raining), useful for weather patterns
-- **`5`** - Altitude map; white (high), black (low), useful for terrain topology
-- **`6-9`** - Not implemented
+Key options (set as environment variables when calling the script):
+- `PARALLELISM`: max concurrent experiments (default 4).  
+- `USE_LINEAR_MODEL=0|1`: choose `nomnom_model` (0) or `linear_model` (1, default).  
+- `ENABLE_RL=true|false`: toggle RL training; `ENABLE_COMMUNICATION=true` adds message passing.  
+- `ALL=1`: run vanilla, RL-only, and RL+communication variants for each value.  
+- `TRIES=N`: repeat each config with seeds `SEED..SEED+N-1` (default `SEED=1234`).  
+- RL hyperparameters: `RL_LEARNING_RATE`, `RL_BUFFER_SIZE`, `RL_ADAPT_FREQUENCY`, `SURVIVAL_REWARD_WEIGHT`, `ENERGY_REWARD_WEIGHT`, `SOCIAL_REWARD_WEIGHT`, `COMMUNICATION_RADIUS`.  
+- Visualization stride: `STEP_STRIDE` (default 128; passed through to training/visualization).  
+- Messaging toggle: `USE_MESSAGE_ACTION` when communication is enabled.
 
-### Other Controls
-- **`A`** - Toggle player visibility on/off
-- **Mouse drag** - Rotate camera view
-- **Mouse scroll** - Zoom in/out
-- **Shift key** - Hold to shift instead of rotate the camera view
+Outputs:
+- Raw logs: `dirt/examples/nomnom/raw/train_nomnom_<exp_id>.log`.
+- Experiment folders: under `linear_model`, `nomnom_model`, or `rl_experiments/*` depending on RL/communication choices.
+- Aggregated plots: generated at the end via `dirt/examples/nomnom/aggregate_players_timeseries.py`; ablation runs are tagged with a random `ABLATE_ID`.
 
-## Landscape
+Checkpointing & cleanup:
+- Completed experiments (presence of `players_time_series.json`) are skipped on reruns.
+- `visual_output` is cleared before each ablation (except `visual_output/ablate_results`).
+- Partial/incomplete runs in output directories are pruned; completed runs are preserved.
+
+
+
+## Landscape (for DIRT)
 ### Rock
 The rock layer makes up the baseline height of each grid cell in the system.  Rock is not modified, except by erosion, which is usually only used to initialize more complex starting terrain, but not used during simulation.  The rock is initialized using Perlin noise.  The units of rock are such that a rock value of is as tall as a single grid cell is wide.  It's resolution is determined by the `rock_downsample` parameter.
 
