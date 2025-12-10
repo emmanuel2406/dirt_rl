@@ -1,4 +1,4 @@
-from typing import Tuple, TypeVar, Any
+from typing import Tuple, TypeVar, Any, Optional
 
 import jax
 import jax.numpy as jnp
@@ -69,10 +69,12 @@ class NomNomAction:
     forward : [0,1] moves the agent forward one step
     rotate : [0,1,2] rotates the agent left, zero or right
     reproduce : [0,1] makes a new agent
+    message : Optional message vector for communication (used when communication is enabled)
     '''
     forward : jnp.ndarray
     rotate : jnp.ndarray
     reproduce : jnp.ndarray
+    message : Optional[jnp.ndarray] = None  # Optional: defaults to None for backward compatibility
 
 @static_dataclass
 class NomNomTraits:

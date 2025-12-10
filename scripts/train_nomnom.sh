@@ -285,6 +285,7 @@ SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" &> /dev/null && pwd)"
 # Default to standard training script (evolution only)
 ENABLE_RL=${ENABLE_RL:-false}
 ENABLE_COMMUNICATION=${ENABLE_COMMUNICATION:-false}
+USE_MESSAGE_ACTION=${USE_MESSAGE_ACTION:-true}
 
 # Choose training script based on RL flag
 if [ "${ENABLE_RL}" = "true" ] || [ "${ENABLE_RL}" = "1" ]; then
@@ -303,6 +304,7 @@ EXP_ID_ARG=()
 PARAM_ARGS=()
 USE_LINEAR_MODEL_ARG=()
 RL_ARGS=()
+TOP_LEVEL_ARGS=()
 
 # Default use_linear_model to 0 (nomnom_model) if not specified
 USE_LINEAR_MODEL=${USE_LINEAR_MODEL:-0}
@@ -375,6 +377,11 @@ while [ $# -gt 0 ]; do
     elif [[ "$arg" =~ ^rl_adapt_frequency=(.+)$ ]]; then
         # rl_adapt_frequency=value format (RL-specific)
         RL_ARGS+=("--rl_adapt_frequency" "${BASH_REMATCH[1]}")
+    elif [[ "$arg" =~ ^use_message_action=(.+)$ ]]; then
+        # use_message_action=value format (RL-specific)
+        # Convert boolean strings to 1/0 format
+        USE_MESSAGE_ACTION_VALUE=$(convert_bool_to_int "${BASH_REMATCH[1]}")
+        RL_ARGS+=("--use_message_action" "$USE_MESSAGE_ACTION_VALUE")
     elif [[ "$arg" =~ ^social_reward_weight=(.+)$ ]]; then
         # social_reward_weight=value format (RL-specific)
         RL_ARGS+=("--social_reward_weight" "${BASH_REMATCH[1]}")
@@ -387,6 +394,12 @@ while [ $# -gt 0 ]; do
     elif [[ "$arg" =~ ^communication_radius=(.+)$ ]]; then
         # communication_radius=value format (RL-specific)
         RL_ARGS+=("--communication_radius" "${BASH_REMATCH[1]}")
+    elif [[ "$arg" =~ ^food_grid_stride=(.+)$ ]]; then
+        # food_grid_stride=value format (top-level parameter, not env_params)
+        TOP_LEVEL_ARGS+=("--food_grid_stride" "${BASH_REMATCH[1]}")
+    elif [[ "$arg" =~ ^seed=(.+)$ ]]; then
+        # seed=value format (top-level parameter)
+        TOP_LEVEL_ARGS+=("--seed" "${BASH_REMATCH[1]}")
     elif [[ "$arg" =~ ^([^=]+)=(.+)$ ]]; then
         # Parse param_name=value format (e.g., max_energy=4, initial_players=32)
         PARAM_NAME="${BASH_REMATCH[1]}"
@@ -412,4 +425,11 @@ if [ "$ENABLE_COMMUNICATION_SET" = "false" ] && ([ "${ENABLE_COMMUNICATION}" = "
     RL_ARGS+=("--enable_communication" "$ENABLE_COMMUNICATION_VALUE")
 fi
 
-python "${TRAIN_SCRIPT}" "${USE_LINEAR_MODEL_ARG[@]}" --log_level ERROR "${EXP_ID_ARG[@]}" "${PARAM_ARGS[@]}" "${RL_ARGS[@]}"
+# If USE_MESSAGE_ACTION was set via environment variable, use it
+# (Only pass if communication is enabled, otherwise it's ignored)
+if ([ "${ENABLE_COMMUNICATION}" = "true" ] || [ "${ENABLE_COMMUNICATION}" = "1" ] || [ "${ENABLE_COMMUNICATION}" = "True" ]) || [ "$ENABLE_COMMUNICATION_SET" = "true" ]; then
+    USE_MESSAGE_ACTION_VALUE=$(convert_bool_to_int "${USE_MESSAGE_ACTION}")
+    RL_ARGS+=("--use_message_action" "$USE_MESSAGE_ACTION_VALUE")
+fi
+
+python "${TRAIN_SCRIPT}" "${USE_LINEAR_MODEL_ARG[@]}" --log_level ERROR "${EXP_ID_ARG[@]}" "${PARAM_ARGS[@]}" "${RL_ARGS[@]}" "${TOP_LEVEL_ARGS[@]}"

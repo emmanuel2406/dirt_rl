@@ -49,6 +49,12 @@ class NomNomTrainParams:
     steps_per_epoch : int = 1000
     output_directory : str = '/n/netscratch/kdbrantley_lab/Lab/erassou/dirt'
     load_from_file : Optional[str] = None
+    # Memory optimization: store food_grid only every Nth step (for visualization)
+    # Set to 1 to store every step, or higher to save memory
+    # This should match the step_stride used in visualize_nomnom.py
+    food_grid_stride : int = 128  # Store food_grid every Nth step
+    # Random seed
+    seed : int = 1234
 
 @static_dataclass
 class NomNomReport:
@@ -59,21 +65,44 @@ class NomNomReport:
     player_energy : jnp.array = False
     food_grid : jnp.array = False
     family_tree_parents : jnp.array = False
+    family_tree_birthdays : jnp.array = False  # Birth step for each agent
+    family_tree_current_time : int = 0  # Current step/time
 
 def make_report(
-    state, actions, next_state, players, parent_locations, child_locations
+    state, actions, next_state, players, parent_locations, child_locations, food_grid_stride=1
 ):
     #jax.debug.print('player_x {x}', x=next_state.env_state.player_x)
     #jax.debug.print('player_r {r}', r=next_state.env_state.player_r)
     #jax.debug.print('action {a}', a=actions)
+    # Only store food_grid for steps that match the stride (to save memory)
+    # Use curr_step to determine if we should store this step's food_grid.
+    # This must be JAX-friendly since make_report is called inside a jitted scan.
+    curr_step = next_state.env_state.curr_step
+    should_store_food_grid = (curr_step % food_grid_stride == 0)
+    
+    # Store food_grid if stride matches, otherwise store zeros (same shape to maintain array structure).
+    # Use jax.lax.cond instead of a Python if to avoid TracerBoolConversionError.
+    food_grid = jax.lax.cond(
+        should_store_food_grid,
+        lambda *_: next_state.env_state.food_grid,
+        lambda *_: jnp.zeros_like(next_state.env_state.food_grid),
+        operand=None,
+    )
+    
+    # Extract birthdays and current time from family_tree
+    birthdays = next_state.env_state.family_tree.player_state.players[..., 0]
+    current_time = next_state.env_state.family_tree.player_state.current_time
+    
     return NomNomReport(
         actions,
         players,
         next_state.env_state.player_x,
         next_state.env_state.player_r,
         next_state.env_state.player_energy,
-        next_state.env_state.food_grid,
+        food_grid,
         next_state.env_state.family_tree.parents,
+        birthdays,
+        current_time,
     )
 
 def train(key, params):
@@ -120,6 +149,11 @@ def train(key, params):
     os.makedirs(output_directory, exist_ok=True)
     
     # - build the training functions
+    # Create a make_report function that respects the food_grid_stride parameter
+    def make_report_with_stride(state, actions, next_state, players, parent_locations, child_locations):
+        return make_report(state, actions, next_state, players, parent_locations, child_locations,
+                          food_grid_stride=params.food_grid_stride)
+    
     reset_train, step_train = natural_selection(
         params.train_params,
         reset_env,
@@ -127,7 +161,7 @@ def train(key, params):
         init_model,
         model,
         mutate,
-        make_report
+        make_report_with_stride
     )
     
     # get the initial state of the training function
@@ -160,6 +194,10 @@ def train(key, params):
     
     # Initialize time-series tracking for active players
     players_time_series = []
+    
+    # Initialize time-series tracking for average lifespan per epoch
+    # This will be a list where index i contains the average lifespan for agents that died in epoch i
+    avg_lifespan_per_epoch = []
     
     # the outer loop is not scanned because it will have side effects
     while epoch < params.epochs:
@@ -206,6 +244,50 @@ def train(key, params):
         active_players_array = np.array(active_players_per_step)
         players_time_series.extend(active_players_array.tolist())
         
+        # Track agent deaths and calculate lifespans
+        # Compare consecutive steps to detect deaths (was active, now inactive)
+        lifespans_this_epoch = []
+        
+        # Track deaths within this epoch by comparing consecutive steps
+        players_array = np.array(reports.players)  # Shape: (steps_per_epoch, max_players)
+        birthdays_array = np.array(reports.family_tree_birthdays)  # Shape: (steps_per_epoch, max_players)
+        
+        # Calculate absolute step numbers for this epoch
+        # Step 0 of epoch 0 is step 0, step 0 of epoch 1 is step steps_per_epoch, etc.
+        epoch_start_step = (epoch - 1) * params.steps_per_epoch
+        
+        # For each step after the first, check for deaths
+        for step_idx in range(1, players_array.shape[0]):
+            prev_active = players_array[step_idx - 1]  # Active in previous step
+            curr_active = players_array[step_idx]  # Active in current step
+            
+            # Deaths: was active, now inactive
+            # Handle both boolean and integer arrays (1/0 or True/False)
+            prev_active_bool = prev_active.astype(bool)
+            curr_active_bool = curr_active.astype(bool)
+            deaths = prev_active_bool & ~curr_active_bool
+            death_indices = np.where(deaths)[0]
+            
+            if len(death_indices) > 0:
+                # Get birthdays for dead agents (use previous step's birthdays)
+                # Birthdays are absolute step numbers when agents were born
+                dead_birthdays = birthdays_array[step_idx - 1][death_indices]
+                # Death time is the absolute step number when death occurred
+                death_time = epoch_start_step + step_idx
+                
+                # Calculate lifespans: death_time - birthday
+                lifespans = death_time - dead_birthdays
+                lifespans_this_epoch.extend(lifespans.tolist())
+        
+        # Calculate average lifespan for this epoch
+        if len(lifespans_this_epoch) > 0:
+            avg_lifespan = np.mean(lifespans_this_epoch)
+            avg_lifespan_per_epoch.append(float(avg_lifespan))
+            print(f"  Average lifespan (agents that died this epoch): {avg_lifespan:.2f} steps ({len(lifespans_this_epoch)} deaths)")
+        else:
+            avg_lifespan_per_epoch.append(None)  # No deaths this epoch
+            print(f"  Average lifespan: N/A (no deaths this epoch)")
+        
         # Check if any step had 0 agents
         min_active_players = jnp.min(active_players_per_step)
         
@@ -236,6 +318,7 @@ def train(key, params):
     time_series_file = f'{output_directory}/players_time_series.json'
     time_series_data = {
         'active_players_per_step': players_time_series,
+        'avg_lifespan_per_epoch': avg_lifespan_per_epoch,
         'total_steps': len(players_time_series),
         'steps_per_epoch': params.steps_per_epoch,
         'epochs_completed': epoch,
@@ -248,9 +331,6 @@ def train(key, params):
     return train_state
 
 if __name__ == '__main__':
-    
-    #key = jrng.key(5432)
-    key = jrng.key(1234)
     
     max_players = 128 #*16
     env_params = NomNomParams(
@@ -271,8 +351,8 @@ if __name__ == '__main__':
     params = NomNomTrainParams(
         env_params=env_params,
         train_params=train_params,
-        epochs=10,
-        steps_per_epoch=4096,
+        epochs=20,
+        steps_per_epoch=1024,
         use_linear_model=True,
     )
     
@@ -281,6 +361,9 @@ if __name__ == '__main__':
     params.add_commandline_args(parser)
     args = parser.parse_args()
     params = params.update_from_commandline(args)
+    
+    # Initialize random key with seed from params
+    key = jrng.key(params.seed)
     
     start = time.time()
     train(key, params)

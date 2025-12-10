@@ -5,13 +5,13 @@
 #     ./visualize_nomnom.sh
 #     ./visualize_nomnom.sh /path/to/output_directory
 #     OUTPUT_DIR=/path/to/output_directory ./visualize_nomnom.sh
-#     VISUAL_OUTPUT_SUBDIR=my_subdir ./visualize_nomnom.sh
+#     EXPERIMENT_NAME=my_experiment ./visualize_nomnom.sh
 #     RELATIVE_DIR=some/path ./visualize_nomnom.sh
 #     CAPTURE_VIDEO=true ./visualize_nomnom.sh
 #   Interactive (X11 forwarding / real display):
 #     MODE=interactive ./visualize_nomnom.sh
 #     MODE=interactive OUTPUT_DIR=/path/to/output_directory ./visualize_nomnom.sh
-#     MODE=interactive VISUAL_OUTPUT_SUBDIR=my_subdir ./visualize_nomnom.sh
+#     MODE=interactive EXPERIMENT_NAME=my_experiment ./visualize_nomnom.sh
 #     MODE=interactive RELATIVE_DIR=some/path ./visualize_nomnom.sh
 #     MODE=interactive CAPTURE_VIDEO=true ./visualize_nomnom.sh
 #
@@ -19,11 +19,12 @@
 #   - train_params.state
 #   - one or more report_XXXXXXXX.state files
 #
-# VISUAL_OUTPUT_SUBDIR: Optional subdirectory name within visual_output for saving frames.
-#                       If not provided, defaults to the basename of output_directory.
+# EXPERIMENT_NAME: Optional experiment name used for subdirectory and graph title.
+#                  If not provided, defaults to the basename of output_directory.
 # RELATIVE_DIR: Optional relative or absolute path to change working directory before running.
 #               If not provided, defaults to the scripts directory.
 # CAPTURE_VIDEO: If set to "true", converts PNG frames to video after visualization (default: false).
+# STEP_STRIDE: How often to visualize steps (should match food_grid_stride used in training, default: 128).
 
 # Load Mambaforge module (required for mamba/conda to work)
 module load Mambaforge/23.11.0-fasrc01
@@ -169,12 +170,17 @@ echo ""
 #                         of frames in auto_step mode (headless/Slurm-friendly).
 MODE="${MODE:-headless}"
 
-# Allow visual_output_subdir to be set via environment variable
-# Usage: VISUAL_OUTPUT_SUBDIR=my_subdir ./visualize_nomnom.sh
-VISUAL_OUTPUT_SUBDIR_ARGS=()
-if [ -n "${VISUAL_OUTPUT_SUBDIR}" ]; then
-    VISUAL_OUTPUT_SUBDIR_ARGS=("--visual_output_subdir" "${VISUAL_OUTPUT_SUBDIR}")
+# Allow experiment_name to be set via environment variable
+# Usage: EXPERIMENT_NAME=my_experiment ./visualize_nomnom.sh
+# Also support backward compatibility with VISUAL_OUTPUT_SUBDIR
+EXPERIMENT_NAME="${EXPERIMENT_NAME:-${VISUAL_OUTPUT_SUBDIR}}"
+EXPERIMENT_NAME_ARGS=()
+if [ -n "${EXPERIMENT_NAME}" ]; then
+    EXPERIMENT_NAME_ARGS=("--experiment_name" "${EXPERIMENT_NAME}")
 fi
+
+# Set step_stride (default to 128 to match default food_grid_stride in train_nomnom.py)
+STEP_STRIDE="${STEP_STRIDE:-128}"
 
 if [ "${MODE}" = "interactive" ]; then
     echo "Running in INTERACTIVE mode (no Xvfb; relying on existing DISPLAY=${DISPLAY:-unset})"
@@ -183,11 +189,12 @@ if [ "${MODE}" = "interactive" ]; then
         echo "  Make sure you are using X11 forwarding or a real display (e.g., ssh -X, salloc --x11)."
         exit 1
     fi
-    python "${VISUALIZE_SCRIPT}" "${OUTPUT_DIR}" "${VISUAL_OUTPUT_SUBDIR_ARGS[@]}" > raw/visualize_nomnom.log 2>&1
+    python "${VISUALIZE_SCRIPT}" "${OUTPUT_DIR}" "${EXPERIMENT_NAME_ARGS[@]}" > raw/visualize_nomnom.log 2>&1
 else
     echo "Running in HEADLESS mode (Xvfb + auto_step)."
     # For headless mode, let visualize_nomnom.py decide about Xvfb and max_frames.
-    python "${VISUALIZE_SCRIPT}" "${OUTPUT_DIR}" --backend matplotlib --step_stride 128 "${VISUAL_OUTPUT_SUBDIR_ARGS[@]}"
+    # Use STEP_STRIDE from environment variable (should match food_grid_stride used in training)
+    python "${VISUALIZE_SCRIPT}" "${OUTPUT_DIR}" --backend matplotlib --step_stride "${STEP_STRIDE}" "${EXPERIMENT_NAME_ARGS[@]}"
 fi
 
 # Determine visualization result status
@@ -200,8 +207,8 @@ if [ "${CAPTURE_VIDEO}" = "true" ]; then
     echo "=== Converting frames to video ==="
     
     # Determine the folder suffix (subdirectory name in visual_output)
-    if [ -n "${VISUAL_OUTPUT_SUBDIR}" ]; then
-        FOLDER_SUFFIX="${VISUAL_OUTPUT_SUBDIR}"
+    if [ -n "${EXPERIMENT_NAME}" ]; then
+        FOLDER_SUFFIX="${EXPERIMENT_NAME}"
     else
         # Use basename of OUTPUT_DIR as default (matching visualize_nomnom.py behavior)
         FOLDER_SUFFIX=$(basename "$(realpath "${OUTPUT_DIR}")")
@@ -215,7 +222,7 @@ if [ "${CAPTURE_VIDEO}" = "true" ]; then
         echo "  Skipping video conversion."
     else
         # Call convert_video.sh with the folder suffix
-        "${CONVERT_VIDEO_SCRIPT}" "${FOLDER_SUFFIX}"
+        "${CONVERT_VIDEO_SCRIPT}" "${FOLDER_SUFFIX}" "${EXPERIMENT_NAME}.mp4"
         VIDEO_CONVERSION_EXIT_CODE=$?
         
         if [ "${VIDEO_CONVERSION_EXIT_CODE}" -eq 0 ]; then

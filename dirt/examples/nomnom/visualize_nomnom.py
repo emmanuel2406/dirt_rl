@@ -2,6 +2,7 @@ import os
 import argparse
 import subprocess
 import atexit
+from collections import Counter
 
 import numpy as np
 
@@ -175,7 +176,7 @@ def start_viewer(output_directory, max_frames=None):
     viewer.start(max_frames=max_frames, auto_step=True)
 
 
-def render_with_matplotlib(output_directory, max_frames=None, step_stride=1, visual_output_subdir=None):
+def render_with_matplotlib(output_directory, max_frames=None, step_stride=1, experiment_name=None):
     """Headless visualization that saves frames as PNGs using matplotlib.
 
     This avoids any OpenGL/GLFW requirements and works well on Slurm/batch.
@@ -184,7 +185,7 @@ def render_with_matplotlib(output_directory, max_frames=None, step_stride=1, vis
         output_directory: Directory containing report files
         max_frames: Maximum number of frames to render
         step_stride: Save every Nth step
-        visual_output_subdir: Subdirectory name within visual_output (default: None, uses output_directory basename)
+        experiment_name: Experiment name used for subdirectory and title (default: None, uses output_directory basename)
     """
     print(f"[matplotlib] Loading data from: {output_directory}")
     report_paths = sorted([
@@ -204,11 +205,11 @@ def render_with_matplotlib(output_directory, max_frames=None, step_stride=1, vis
     # visual_output is at dirt/examples/nomnom/visual_output (same directory as this script)
     base_visual_output = os.path.join(script_dir, "visual_output")
     
-    # Use provided subdir, or default to output_directory basename
-    if visual_output_subdir is None:
-        visual_output_subdir = os.path.basename(os.path.abspath(output_directory))
+    # Use provided experiment name, or default to output_directory basename
+    if experiment_name is None:
+        experiment_name = os.path.basename(os.path.abspath(output_directory))
     
-    images_dir = os.path.join(base_visual_output, visual_output_subdir)
+    images_dir = os.path.join(base_visual_output, experiment_name)
     os.makedirs(images_dir, exist_ok=True)
     print(f"[matplotlib] Saving frames into: {images_dir}")
 
@@ -216,6 +217,9 @@ def render_with_matplotlib(output_directory, max_frames=None, step_stride=1, vis
     # step_stride controls which steps from the data are processed (e.g., every 100th step)
     # The actual step index 't' is shown in the plot title
     frame_idx = 0
+    # Track the last valid food grid to handle cases where food_grid_stride > 1
+    # (when food_grid_stride > 1, non-strided steps store zeros to save memory)
+    last_valid_fg = None
     for block_idx, path in enumerate(report_paths):
         print(f"[matplotlib] Loading report block: {path}")
         # Use non‑strict loading to tolerate legacy report files that may have
@@ -228,6 +232,25 @@ def render_with_matplotlib(output_directory, max_frames=None, step_stride=1, vis
         players = reports.players
 
         T = food_grid.shape[0]
+        
+        # Infer food_grid_stride by finding the pattern of non-zero food_grids
+        # This helps us understand which steps have valid data
+        valid_food_grid_indices = []
+        for i in range(min(500, T)):  # Check first 500 steps to infer pattern
+            if np.sum(np.array(food_grid[i])) > 0:
+                valid_food_grid_indices.append(i)
+        
+        inferred_stride = None
+        if len(valid_food_grid_indices) >= 2:
+            # Find the most common interval between valid food_grids
+            intervals = [valid_food_grid_indices[i+1] - valid_food_grid_indices[i] 
+                        for i in range(len(valid_food_grid_indices) - 1)]
+            if intervals:
+                # Use the most common interval as the inferred stride
+                most_common_interval = Counter(intervals).most_common(1)[0][0]
+                inferred_stride = most_common_interval
+                print(f"[matplotlib] Inferred food_grid_stride: {inferred_stride} (from pattern: {intervals[:10]}...)")
+        
         # Process every step_stride-th step (e.g., if step_stride=100, process steps 0, 100, 200, ...)
         for t in range(0, T, step_stride):
             if max_frames is not None and frame_idx >= max_frames:
@@ -235,6 +258,58 @@ def render_with_matplotlib(output_directory, max_frames=None, step_stride=1, vis
                 return
 
             fg = np.array(food_grid[t])
+            # If food_grid was stored with stride > 1, non-strided steps contain zeros
+            # Find the nearest valid food_grid (preferring the most recent one)
+            if np.sum(fg) == 0:
+                found_valid = False
+                
+                # If we inferred the stride, use it to find the nearest valid food_grid more efficiently
+                if inferred_stride is not None and inferred_stride > 1:
+                    # Round down to nearest multiple of stride
+                    nearest_stride_index = (t // inferred_stride) * inferred_stride
+                    # Check a few candidates around the expected stride-aligned index
+                    candidates = [nearest_stride_index]
+                    for offset in [-inferred_stride, inferred_stride]:
+                        candidate = nearest_stride_index + offset
+                        if 0 <= candidate < T:
+                            candidates.append(candidate)
+                    
+                    # Try candidates in order: nearest stride-aligned, then nearby ones
+                    for candidate_t in candidates:
+                        if 0 <= candidate_t < T:
+                            scan_fg = np.array(food_grid[candidate_t])
+                            if np.sum(scan_fg) > 0:
+                                fg = scan_fg
+                                found_valid = True
+                                break
+                
+                # If stride-based lookup didn't work, scan backwards (most recent valid)
+                if not found_valid:
+                    for scan_t in range(t - 1, max(-1, t - 200), -1):  # Scan up to 200 steps back
+                        scan_fg = np.array(food_grid[scan_t])
+                        if np.sum(scan_fg) > 0:
+                            fg = scan_fg
+                            found_valid = True
+                            break
+                
+                # If no valid food_grid found backwards, try scanning forward (for very early steps)
+                if not found_valid:
+                    for scan_t in range(t + 1, min(t + 200, T)):  # Scan up to 200 steps ahead
+                        scan_fg = np.array(food_grid[scan_t])
+                        if np.sum(scan_fg) > 0:
+                            fg = scan_fg
+                            found_valid = True
+                            break
+                
+                # Update last_valid_fg for future reference
+                if found_valid:
+                    last_valid_fg = fg.copy()
+                elif last_valid_fg is not None:
+                    # Fallback: use last valid food grid we saw (from previous block or earlier)
+                    fg = last_valid_fg
+            else:
+                # Update last_valid_fg when we encounter a non-zero food grid
+                last_valid_fg = fg.copy()
             pl = np.array(players[t])
             
             # Get player positions and other data
@@ -443,14 +518,14 @@ def render_with_matplotlib(output_directory, max_frames=None, step_stride=1, vis
                         except Exception:
                             pass  # Skip arrows if rotation data is invalid
 
-            ax.set_title(f"NomNom – epoch {block_idx}, step {t} | Active players: {len(active_indices)} (colored by family lineage)", fontsize=12)
+            ax.set_title(f"NomNom – {experiment_name} | epoch {block_idx}, step {t} | Active players: {len(active_indices)}", fontsize=12)
             ax.set_xlabel("x")
             ax.set_ylabel("y")
             ax.set_aspect('equal')
             ax.grid(True, alpha=0.3, linestyle='--')
             
-            # Set axis limits to match world size
-            h, w = fg.shape
+            # Set axis limits to match world size (always 512x512)
+            h, w = 512, 512
             ax.set_xlim(-0.5, w - 0.5)
             ax.set_ylim(-0.5, h - 0.5)
 
@@ -490,10 +565,10 @@ if __name__ == '__main__':
         help='For matplotlib backend: save every Nth step (default: 1).',
     )
     parser.add_argument(
-        '--visual_output_subdir',
+        '--experiment_name',
         type=str,
         default=None,
-        help='Subdirectory name within visual_output for saving frames. '
+        help='Experiment name used for subdirectory and graph title. '
              'If not provided, uses the basename of output_directory.',
     )
     args = parser.parse_args()
@@ -505,5 +580,5 @@ if __name__ == '__main__':
             args.output_directory,
             max_frames=args.max_frames if args.max_frames > 0 else None,
             step_stride=args.step_stride,
-            visual_output_subdir=args.visual_output_subdir,
+            experiment_name=args.experiment_name,
         )

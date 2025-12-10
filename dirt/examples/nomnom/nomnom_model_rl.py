@@ -39,6 +39,10 @@ class NomNomRLModelParams:
     
     # Whether observations are augmented
     use_augmented_obs: bool = True
+    
+    # Whether agents output message actions (separate from communication infrastructure)
+    # When False, agents can still receive messages but don't output them
+    use_message_action: bool = True
 
 
 def nomnom_linear_model_with_communication(params=NomNomRLModelParams()):
@@ -144,7 +148,7 @@ def nomnom_linear_model_with_communication(params=NomNomRLModelParams()):
             'forward': all_features,
             'rotate': all_features,
             'reproduce': all_features,
-            'message': all_features if params.enable_communication else jnp.zeros(0),
+            'message': all_features if (params.enable_communication and params.use_message_action) else jnp.zeros(0),
         }
     
     encoder = (lambda: None, encoder_forward)
@@ -165,8 +169,8 @@ def nomnom_linear_model_with_communication(params=NomNomRLModelParams()):
         )),
     }
     
-    # Add communication head if enabled
-    if params.enable_communication:
+    # Add communication head if enabled and message action is used
+    if params.enable_communication and params.use_message_action:
         action_heads['message'] = layer_sequence((
             linear_layer(in_dim, params.message_dim, use_bias=True),
             (lambda: None, lambda key, x, state: jnn.tanh(x)),  # Bound messages to [-1, 1]
@@ -177,12 +181,21 @@ def nomnom_linear_model_with_communication(params=NomNomRLModelParams()):
     # Combine into action
     def make_action(x):
         '''Convert decoder outputs to NomNomAction.'''
-        # Always return standard action (communication handled separately)
-        return NomNomAction(
-            forward=x['forward'],
-            rotate=x['rotate'],
-            reproduce=x['reproduce'],
-        )
+        # Build action dict with standard fields
+        action_dict = {
+            'forward': x['forward'],
+            'rotate': x['rotate'],
+            'reproduce': x['reproduce'],
+        }
+        # Include message if communication is enabled AND message action is used
+        # The decoder only outputs 'message' when both enable_communication=True and use_message_action=True
+        if params.enable_communication and params.use_message_action and 'message' in x:
+            message = x['message']
+            # Check if message is non-empty (not a zero-length array)
+            if message.shape == () or (len(message.shape) > 0 and message.shape[-1] > 0):
+                action_dict['message'] = message
+        # If message not included, NomNomAction will use default None (backward compatible)
+        return NomNomAction(**action_dict)
     
     decoder = layer_sequence((
         decoder_heads,
@@ -222,14 +235,16 @@ def create_rl_nomnom_model(
     use_communication=True,
     view_width=5,
     view_distance=5,
+    use_message_action=True,
 ):
     '''
     Convenience function to create a complete RL-enabled NomNom model.
     
     Args:
-        use_communication: Whether to enable communication features
+        use_communication: Whether to enable communication features (infrastructure)
         view_width: Width of agent's view
         view_distance: Distance of agent's view
+        use_message_action: Whether agents output message actions (defaults to True if communication enabled)
     
     Returns:
         model_init, model_forward: Model functions
@@ -239,6 +254,7 @@ def create_rl_nomnom_model(
         view_distance=view_distance,
         enable_communication=use_communication,
         use_augmented_obs=use_communication,
+        use_message_action=use_message_action if use_communication else False,
     )
     
     return nomnom_linear_model_with_communication(params)
